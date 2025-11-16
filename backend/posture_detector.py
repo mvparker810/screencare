@@ -5,8 +5,9 @@ import time
 import winsound  # For Windows beeping alerts
 from collections import deque
 
-# Initialize MediaPipe Face Detection
+# Initialize MediaPipe Face Detection and Face Mesh
 mp_face_detection = mp.solutions.face_detection
+mp_face_mesh = mp.solutions.face_mesh
 mp_drawing = mp.solutions.drawing_utils
 
 class PostureDetector:
@@ -43,6 +44,19 @@ class PostureDetector:
             min_detection_confidence=0.7
         )
 
+        # Initialize MediaPipe Face Mesh for eye blinking detection
+        self.face_mesh = mp_face_mesh.FaceMesh(
+            static_image_mode=False,
+            max_num_faces=1,
+            min_detection_confidence=0.5
+        )
+
+        # Eye blink tracking (following the BlinkCounter pattern)
+        self.blink_count = 0  # Total blinks detected
+        self.frame_counter = 0  # Consecutive frames with eyes closed
+        self.ear_threshold = 0.18  # Eye aspect ratio threshold (more sensitive than 0.3)
+        self.consec_frames = 2  # Minimum consecutive frames to confirm blink
+
     def calculate_face_size(self, detection, frame_width, frame_height):
         """Calculate the relative size of the detected face."""
         bbox = detection.location_data.relative_bounding_box
@@ -59,6 +73,68 @@ class PostureDetector:
             return None
         return np.mean(list(self.face_size_history))
 
+    def eye_aspect_ratio(self, eye_indices, landmarks):
+        """
+        Calculate Eye Aspect Ratio (EAR) for blink detection.
+        Uses the formula: EAR = (A + B) / (2.0 * C)
+        where A, B are vertical distances and C is horizontal distance.
+
+        Args:
+            eye_indices: List of 6 landmark indices [0=inner, 1=top, 2=top2, 3=outer, 4=bottom2, 5=bottom]
+            landmarks: List of all facial landmarks with x,y coordinates
+        """
+        # A = distance between top landmarks
+        A = np.linalg.norm(np.array(landmarks[eye_indices[1]]) - np.array(landmarks[eye_indices[5]]))
+        # B = distance between top2 and bottom2 landmarks
+        B = np.linalg.norm(np.array(landmarks[eye_indices[2]]) - np.array(landmarks[eye_indices[4]]))
+        # C = distance between inner and outer corners
+        C = np.linalg.norm(np.array(landmarks[eye_indices[0]]) - np.array(landmarks[eye_indices[3]]))
+
+        # Calculate EAR
+        ear = (A + B) / (2.0 * C)
+        return ear
+
+    def detect_blinks(self, frame_rgb):
+        """
+        Detect eye blinks using Face Mesh landmarks with consecutive frame counting.
+        Follows the BlinkCounter pattern from the reference script.
+        """
+        results = self.face_mesh.process(frame_rgb)
+
+        if not results.multi_face_landmarks:
+            return False
+
+        landmarks_list = []
+        for landmark in results.multi_face_landmarks[0].landmark:
+            landmarks_list.append([landmark.x, landmark.y])
+
+        # Eye landmark indices for MediaPipe Face Mesh (6 points each for EAR calculation)
+        # Format: [inner_corner, top, top2, outer_corner, bottom2, bottom]
+        RIGHT_EYE_EAR = [33, 159, 158, 133, 153, 145]
+        LEFT_EYE_EAR = [362, 380, 374, 263, 386, 385]
+
+        # Calculate Eye Aspect Ratio for both eyes
+        right_ear = self.eye_aspect_ratio(RIGHT_EYE_EAR, landmarks_list)
+        left_ear = self.eye_aspect_ratio(LEFT_EYE_EAR, landmarks_list)
+        avg_ear = (right_ear + left_ear) / 2.0
+
+        # Update blink detection using consecutive frames approach
+        blink_detected = False
+        if avg_ear < self.ear_threshold:
+            # Eyes are closed, increment frame counter
+            self.frame_counter += 1
+        else:
+            # Eyes are open
+            if self.frame_counter >= self.consec_frames:
+                # Confirmed blink: eyes were closed for enough consecutive frames
+                self.blink_count += 1
+                blink_detected = True
+                print(f"👁️ BLINK DETECTED! (Total: {self.blink_count})")
+            # Reset counter
+            self.frame_counter = 0
+
+        return blink_detected
+
     def detect_posture(self, frame):
         """
         Detect posture from a frame using rolling window averaging.
@@ -71,6 +147,9 @@ class PostureDetector:
         """
         frame_height, frame_width, _ = frame.shape
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # Detect blinks
+        self.detect_blinks(frame_rgb)
 
         # Use the pre-initialized face detection
         results = self.face_detection.process(frame_rgb)

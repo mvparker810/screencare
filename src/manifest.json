@@ -7,20 +7,9 @@
     "default_popup": "popup.html",
     "default_title": "ScreenCare"
   },
-  "permissions": [
-    "tabs",
-    "scripting",
-    "activeTab"
-  ],
+  "permissions": ["notifications"],
   "host_permissions": [
-    "<all_urls>"
-  ],
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["monitor.js"],
-      "run_at": "document_idle"
-    }
+    "http://localhost/*"
   ]
 }
 
