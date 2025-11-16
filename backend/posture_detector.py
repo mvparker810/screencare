@@ -54,8 +54,25 @@ class PostureDetector:
         # Eye blink tracking (following the BlinkCounter pattern)
         self.blink_count = 0  # Total blinks detected
         self.frame_counter = 0  # Consecutive frames with eyes closed
-        self.ear_threshold = 0.18  # Eye aspect ratio threshold (more sensitive than 0.3)
-        self.consec_frames = 2  # Minimum consecutive frames to confirm blink
+        self.ear_threshold = 0.3  # Eye aspect ratio threshold
+        self.consec_frames = 4  # Minimum consecutive frames to confirm blink
+
+        # Eye landmarks for visualization and EAR calculation
+        self.RIGHT_EYE = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
+        self.LEFT_EYE = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]
+        self.RIGHT_EYE_EAR = [33, 159, 158, 133, 153, 145]
+        self.LEFT_EYE_EAR = [362, 380, 374, 263, 386, 385]
+
+        # Colors for visualization
+        self.GREEN_COLOR = (86, 241, 13)  # Eyes open
+        self.RED_COLOR = (30, 46, 209)    # Eyes closed
+
+        # Blink rate tracking (for low blink rate warning)
+        self.blink_timestamps = deque()  # Track when blinks occur
+        self.blink_rate_check_interval = 60  # Check blink rate every 60 seconds
+        self.last_blink_rate_check = time.time()
+        self.min_blinks_per_minute = 15  # Warn if below this threshold
+        self.low_blink_rate_alert_triggered = False  # Prevent repeated alerts
 
     def calculate_face_size(self, detection, frame_width, frame_height):
         """Calculate the relative size of the detected face."""
@@ -94,46 +111,109 @@ class PostureDetector:
         ear = (A + B) / (2.0 * C)
         return ear
 
-    def detect_blinks(self, frame_rgb):
+    def update_blink_count(self, ear):
         """
-        Detect eye blinks using Face Mesh landmarks with consecutive frame counting.
+        Update blink counter based on current eye aspect ratio.
+        Follows the reference BlinkCounter pattern exactly.
+
+        Args:
+            ear (float): Current eye aspect ratio
+
+        Returns:
+            bool: True if a new blink was detected, False otherwise
+        """
+        blink_detected = False
+        if ear < self.ear_threshold:
+            self.frame_counter += 1
+        else: 
+            if self.frame_counter >= self.consec_frames:
+                self.blink_count += 1
+                blink_detected = True
+                # Record timestamp for blink rate tracking
+                self.blink_timestamps.append(time.time())
+                print(f"👁️ BLINK DETECTED! (Total: {self.blink_count})")
+            self.frame_counter = 0
+
+        return blink_detected
+
+    def set_colors(self, ear):
+        """
+        Determine visualization color based on eye aspect ratio.
+
+        Args:
+            ear (float): Current eye aspect ratio
+
+        Returns:
+            tuple: BGR color values
+        """
+        return self.RED_COLOR if ear < self.ear_threshold else self.GREEN_COLOR
+
+    def detect_blinks(self, frame_rgb, frame_bgr):
+        """
+        Detect eye blinks using Face Mesh landmarks.
         Follows the BlinkCounter pattern from the reference script.
+
+        Args:
+            frame_rgb: Frame in RGB format for Face Mesh processing
+            frame_bgr: Frame in BGR format for visualization
         """
         results = self.face_mesh.process(frame_rgb)
 
         if not results.multi_face_landmarks:
+            # Debug: Face Mesh not detecting landmarks
+            if not hasattr(self, '_debug_logged'):
+                print("[BLINK] Face Mesh not detecting landmarks - checking if face is visible and well-lit")
+                self._debug_logged = True
             return False
+
+        # Reset debug flag when landmarks are detected
+        self._debug_logged = False
 
         landmarks_list = []
         for landmark in results.multi_face_landmarks[0].landmark:
             landmarks_list.append([landmark.x, landmark.y])
 
-        # Eye landmark indices for MediaPipe Face Mesh (6 points each for EAR calculation)
-        # Format: [inner_corner, top, top2, outer_corner, bottom2, bottom]
-        RIGHT_EYE_EAR = [33, 159, 158, 133, 153, 145]
-        LEFT_EYE_EAR = [362, 380, 374, 263, 386, 385]
-
         # Calculate Eye Aspect Ratio for both eyes
-        right_ear = self.eye_aspect_ratio(RIGHT_EYE_EAR, landmarks_list)
-        left_ear = self.eye_aspect_ratio(LEFT_EYE_EAR, landmarks_list)
-        avg_ear = (right_ear + left_ear) / 2.0
+        right_ear = self.eye_aspect_ratio(self.RIGHT_EYE_EAR, landmarks_list)
+        left_ear = self.eye_aspect_ratio(self.LEFT_EYE_EAR, landmarks_list)
+        ear = (right_ear + left_ear) / 2.0
 
-        # Update blink detection using consecutive frames approach
-        blink_detected = False
-        if avg_ear < self.ear_threshold:
-            # Eyes are closed, increment frame counter
-            self.frame_counter += 1
-        else:
-            # Eyes are open
-            if self.frame_counter >= self.consec_frames:
-                # Confirmed blink: eyes were closed for enough consecutive frames
-                self.blink_count += 1
-                blink_detected = True
-                print(f"👁️ BLINK DETECTED! (Total: {self.blink_count})")
-            # Reset counter
-            self.frame_counter = 0
+        # Determine color based on EAR
+        color = self.set_colors(ear)
+
+        # Draw eye landmarks on the frame
+        self._draw_eye_landmarks(frame_bgr, landmarks_list, self.RIGHT_EYE, color)
+        self._draw_eye_landmarks(frame_bgr, landmarks_list, self.LEFT_EYE, color)
+
+        # Debug: Print EAR values every 30 frames
+        if not hasattr(self, '_frame_counter_debug'):
+            self._frame_counter_debug = 0
+        self._frame_counter_debug += 1
+
+        if self._frame_counter_debug % 30 == 0:
+            print(f"[EAR] R:{right_ear:.3f} L:{left_ear:.3f} Avg:{ear:.3f} Threshold:{self.ear_threshold} Frame_cnt:{self.frame_counter}")
+
+        # Update blink detection using the update_blink_count method
+        blink_detected = self.update_blink_count(ear)
 
         return blink_detected
+
+    def _draw_eye_landmarks(self, frame, landmarks, eye_indices, color):
+        """
+        Draw landmarks around the eyes on the frame.
+
+        Args:
+            frame: Video frame to draw on
+            landmarks: List of facial landmarks (normalized coordinates)
+            eye_indices: Indices of landmarks for one eye
+            color: BGR color values for drawing
+        """
+        frame_height, frame_width, _ = frame.shape
+        for idx in eye_indices:
+            if idx < len(landmarks):
+                x = int(landmarks[idx][0] * frame_width)
+                y = int(landmarks[idx][1] * frame_height)
+                cv2.circle(frame, (x, y), 2, color, -1)
 
     def detect_posture(self, frame):
         """
@@ -148,8 +228,8 @@ class PostureDetector:
         frame_height, frame_width, _ = frame.shape
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        # Detect blinks
-        self.detect_blinks(frame_rgb)
+        # Detect blinks (pass both RGB for processing and BGR for visualization)
+        self.detect_blinks(frame_rgb, frame)
 
         # Use the pre-initialized face detection
         results = self.face_detection.process(frame_rgb)
@@ -164,7 +244,8 @@ class PostureDetector:
         alerts = {
             'no_face_alert': False,
             'warning_alert': False,
-            'bad_alert': False
+            'bad_alert': False,
+            'low_blink_rate_alert': False
         }
 
         if results.detections:
@@ -217,6 +298,28 @@ class PostureDetector:
         if self.no_face_duration >= self.no_face_threshold:
             alerts['no_face_alert'] = True
 
+        # Check blink rate every 60 seconds
+        if current_time - self.last_blink_rate_check >= self.blink_rate_check_interval:
+            # Remove timestamps older than 60 seconds
+            cutoff_time = current_time - self.blink_rate_check_interval
+            while self.blink_timestamps and self.blink_timestamps[0] < cutoff_time:
+                self.blink_timestamps.popleft()
+
+            # Calculate blinks per minute (normalize to 60 seconds)
+            blinks_in_interval = len(self.blink_timestamps)
+            blinks_per_minute = blinks_in_interval  # Already in 60-second window
+
+            # Check if below threshold
+            if blinks_per_minute < self.min_blinks_per_minute:
+                alerts['low_blink_rate_alert'] = True
+                self.low_blink_rate_alert_triggered = True
+                print(f"⚠️  LOW BLINK RATE - {blinks_per_minute} blinks/min (threshold: {self.min_blinks_per_minute})")
+            else:
+                # Reset trigger flag when blink rate recovers
+                self.low_blink_rate_alert_triggered = False
+
+            self.last_blink_rate_check = current_time
+
         return posture_status, face_size, bbox, is_face_detected, alerts
 
     def draw_feedback(self, frame, posture_status, face_size, bbox):
@@ -251,6 +354,10 @@ class PostureDetector:
         if face_size is not None:
             face_size_text = f"Face size: {face_size:.2%}"
             cv2.putText(frame, face_size_text, (50, 200), font, 1, (255, 255, 255), 2)
+
+        # Draw blink count
+        blink_count_text = f"👁️ Blinks: {self.blink_count}"
+        cv2.putText(frame, blink_count_text, (50, 250), font, 1, (100, 200, 255), 2)
 
         # Draw bounding box if face detected
         if bbox is not None:
