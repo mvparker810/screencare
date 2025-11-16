@@ -14,6 +14,7 @@ import threading
 import time
 import tkinter as tk
 import random
+import ctypes
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +36,195 @@ current_status = {
     'is_face_detected': False,
     'alerts': {'bad_alert': False, 'warning_alert': False, 'no_face_alert': False, 'low_blink_rate_alert': False}
 }
+
+def _show_fullscreen_block(message, duration_ms):
+    """
+    Show a fullscreen OpenCV window with a message and block for duration_ms.
+    Modern, calm mental-health / healthcare styling.
+    """
+    # Get screen size (Windows)
+    user32 = ctypes.windll.user32
+    screen_w = user32.GetSystemMetrics(0)
+    screen_h = user32.GetSystemMetrics(1)
+
+    # Create a soft pastel background
+    img = np.zeros((screen_h, screen_w, 3), dtype=np.uint8)
+    img[:] = (245, 240, 255)  # light pastel lavender (BGR)
+
+    # "Card" area in the center
+    card_margin_x = int(screen_w * 0.08)
+    card_margin_y_top = int(screen_h * 0.12)
+    card_margin_y_bottom = int(screen_h * 0.14)
+
+    card_x1 = card_margin_x
+    card_y1 = card_margin_y_top
+    card_x2 = screen_w - card_margin_x
+    card_y2 = screen_h - card_margin_y_bottom
+
+    # Subtle drop shadow behind card
+    shadow_offset = 10
+    cv2.rectangle(
+        img,
+        (card_x1 + shadow_offset, card_y1 + shadow_offset),
+        (card_x2 + shadow_offset, card_y2 + shadow_offset),
+        (225, 220, 240),  # soft shadow color
+        thickness=-1,
+        lineType=cv2.LINE_AA
+    )
+
+    # Card itself (white)
+    cv2.rectangle(
+        img,
+        (card_x1, card_y1),
+        (card_x2, card_y2),
+        (255, 255, 255),
+        thickness=-1,
+        lineType=cv2.LINE_AA
+    )
+
+    # Accent bar at top of card
+    accent_height = 8
+    cv2.rectangle(
+        img,
+        (card_x1, card_y1),
+        (card_x2, card_y1 + accent_height),
+        (210, 180, 255),  # soft purple accent
+        thickness=-1,
+        lineType=cv2.LINE_AA
+    )
+
+    # Helper to draw multi-line text
+    def put_multiline_text(img, text, org, line_height=40, scale=1.2,
+                           color=(80, 80, 90), thickness=2):
+        x, y = org
+        for line in text.split("\n"):
+            if not line.strip():
+                y += line_height
+                continue
+            (text_w, text_h), _ = cv2.getTextSize(
+                line, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness
+            )
+            cv2.putText(
+                img,
+                line,
+                (x, y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                scale,
+                color,
+                thickness,
+                cv2.LINE_AA
+            )
+            y += line_height
+
+    # Title (centered horizontally)
+    title_text = "Reminder to Stay Kind to Your Body"
+    title_scale = 1.4
+    title_thickness = 2
+    (title_w, title_h), _ = cv2.getTextSize(
+        title_text, cv2.FONT_HERSHEY_SIMPLEX, title_scale, title_thickness
+    )
+    title_x = card_x1 + (card_x2 - card_x1 - title_w) // 2
+    title_y = card_y1 + 80
+
+    cv2.putText(
+        img,
+        title_text,
+        (title_x, title_y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        title_scale,
+        (170, 120, 255),  # soft purple
+        title_thickness,
+        cv2.LINE_AA
+    )
+
+    # Main message (left-aligned inside card)
+    body_x = card_x1 + 80
+    body_y = title_y + 60
+    put_multiline_text(
+        img,
+        message,
+        (body_x, body_y),
+        line_height=40,
+        scale=1.0,
+        color=(90, 100, 120),  # gentle slate gray
+        thickness=2
+    )
+
+    # Info text at bottom of card
+    info_text = "This screen will close automatically."
+    info_scale = 0.9
+    info_thickness = 2
+    (info_w, info_h), _ = cv2.getTextSize(
+        info_text, cv2.FONT_HERSHEY_SIMPLEX, info_scale, info_thickness
+    )
+    info_x = card_x1 + (card_x2 - card_x1 - info_w) // 2
+    info_y = card_y2 - 40
+
+    cv2.putText(
+        img,
+        info_text,
+        (info_x, info_y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        info_scale,
+        (150, 150, 170),  # soft muted gray
+        info_thickness,
+        cv2.LINE_AA
+    )
+
+    window_name = "Eye Break"
+    cv2.namedWindow(window_name, cv2.WND_PROP_FULLSCREEN)
+    cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    cv2.imshow(window_name, img)
+
+    # Block here for duration_ms milliseconds
+    cv2.waitKey(duration_ms)
+
+    cv2.destroyWindow(window_name)
+
+def block_screen_with_5min_activity():
+    """
+    Block the screen and suggest a random 5-minute activity.
+    Intended to be called when blink rate drops below a threshold.
+    (Do NOT call it here; just define it.)
+    """
+    activities = [
+        "Call or text a loved one and check in.",
+        "Fill a glass of water and drink it slowly.",
+        "Stand up, stretch your neck, shoulders, and back.",
+        "Walk around your room or office for a few minutes.",
+        "Write down three things you're grateful for.",
+        "Do a short breathing exercise: inhale 4s, hold 4s, exhale 4s.",
+        "Look out the window and notice five things you can see.",
+    ]
+
+    suggestion = random.choice(activities)
+    message = (   # 1️⃣ Added message = and parentheses
+    "\n\nEye Strain Detected\n\n"
+    "Take a 5-minute break, spend it wisely to fuel your soul, here is an idea:\n\n"
+    f" {suggestion}\n\n"   # 2️⃣ Added \n\n after the suggestion
+    "A tiny pause now saves you from burning out later!"
+)
+
+    # 5 minutes = 5 * 60 * 1000 ms
+    _show_fullscreen_block(message, duration_ms=5 * 60 * 1000)
+
+
+def block_screen_20_20_rule():
+    """
+    Block the screen and show a simple low eye strain / 20-20 rule message.
+    Intended to be called when low eye strain / blinking is detected.
+    (Do NOT call it here; just define it.)
+    """
+    message = (
+        "\n\nSlight Eye Strain Detected\n\n"
+        "Pause and follow the 20-20 rule:\n\n"
+        "- Look at something ~20 feet away\n"
+        "- For at least 20 seconds\n"
+        "- Blink slowly and gently while you do it\n"
+    )
+
+    # 20 seconds = 20 * 1000 ms
+    _show_fullscreen_block(message, duration_ms=20 * 1000)
 
 def show_popup(message, bg_color):
     def popup():
@@ -195,109 +385,5 @@ if __name__ == '__main__':
     else:
         logger.error("Failed to start server - detector initialization failed")
         
-def _show_fullscreen_block(message, duration_ms):
-    """
-    Create a fullscreen, top-most Tk window that blocks the screen
-    for the given duration in milliseconds.
-    """
-    def block():
-        root = tk.Tk()
-        root.overrideredirect(True)          # Remove window chrome
-        root.attributes("-topmost", True)    # Always on top
-        root.attributes("-fullscreen", True) # Fullscreen
 
-        # Background + base layout
-        root.configure(bg="#212121")
-
-        # Container frame
-        frame = tk.Frame(root, bg="#212121")
-        frame.pack(expand=True, fill="both", padx=40, pady=40)
-
-        title = tk.Label(
-            frame,
-            text="Take a Break",
-            font=("Segoe UI", 32, "bold"),
-            fg="white",
-            bg="#212121",
-        )
-        title.pack(pady=(0, 20))
-
-        label = tk.Label(
-            frame,
-            text=message,
-            font=("Segoe UI", 18),
-            fg="#E0E0E0",
-            bg="#212121",
-            wraplength=root.winfo_screenwidth() - 160,
-            justify="center",
-        )
-        label.pack(pady=(0, 20))
-
-        info = tk.Label(
-            frame,
-            text="This screen will close automatically.",
-            font=("Segoe UI", 12),
-            fg="#B0B0B0",
-            bg="#212121",
-        )
-        info.pack(pady=(10, 0))
-
-        # Disable basic key presses from closing the window easily
-        def swallow_event(event):
-            return "break"
-
-        for key in ["<Escape>", "<Alt_L>", "<Alt_R>", "<Control_L>", "<Control_R>"]:
-            root.bind(key, swallow_event)
-
-        # Auto-close after duration_ms
-        root.after(duration_ms, root.destroy)
-        root.mainloop()
-
-    threading.Thread(target=block, daemon=True).start()
-
-
-def block_screen_with_5min_activity():
-    """
-    Block the screen and suggest a random 5-minute activity.
-    Intended to be called when blink rate drops below a threshold.
-    (Do NOT call it here; just define it.)
-    """
-    activities = [
-        "Call or text a loved one and check in.",
-        "Fill a glass of water and drink it slowly.",
-        "Stand up, stretch your neck, shoulders, and back.",
-        "Walk around your room or office for a few minutes.",
-        "Write down three things you're grateful for.",
-        "Do a short breathing exercise: inhale 4s, hold 4s, exhale 4s.",
-        "Look out the window and notice five things you can see.",
-    ]
-
-    suggestion = random.choice(activities)
-    message = (
-        "🚨 LOW BLINK RATE DETECTED\n\n"
-        "Your eyes and posture need a rest.\n\n"
-        "Take a **5-minute break** and do this:\n\n"
-        f"- {suggestion}"
-    )
-
-    # 5 minutes = 5 * 60 * 1000 ms
-    _show_fullscreen_block(message, duration_ms=5 * 60 * 1000)
-
-
-def block_screen_20_20_rule():
-    """
-    Block the screen and show a simple low eye strain / 20-20 rule message.
-    Intended to be called when low eye strain / blinking is detected.
-    (Do NOT call it here; just define it.)
-    """
-    message = (
-        "👀 LOW EYE STRAIN / BLINK RATE DETECTED\n\n"
-        "Pause and follow the 20-20 rule:\n\n"
-        "- Look at something ~20 feet away\n"
-        "- For at least **20 seconds**\n"
-        "- Blink slowly and gently while you do it\n"
-    )
-
-    # 20 seconds = 20 * 1000 ms
-    _show_fullscreen_block(message, duration_ms=20 * 1000)
 
