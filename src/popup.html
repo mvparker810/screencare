@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title> Screen Care</title>
+    <style>
+      /* ====== GENERAL LAYOUT ====== */
+      :root {
+        --bg: #f5f7fb;
+        --card-bg: #ffffff;
+        --accent: #7bd6c4;
+        --accent-soft: #e3f8f3;
+        --accent-strong: #4aa894;
+        --text-main: #1f2933;
+        --text-subtle: #6b7280;
+        --danger: #ef4444;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 16px;
+        width: 320px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+          "Segoe UI", sans-serif;
+        background: radial-gradient(circle at top left, #eaf5ff, #fdfbff);
+      }
+
+      .card {
+        background: var(--card-bg);
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .title-block {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-main);
+      }
+
+      .subtitle {
+        font-size: 12px;
+        color: var(--text-subtle);
+      }
+
+      .pill {
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .pill-off {
+        background: #f3f4f6;
+        color: var(--text-subtle);
+      }
+
+      .pill-on {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+      }
+
+      .pill-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: currentColor;
+      }
+
+      .content {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .icon-circle {
+        width: 52px;
+        height: 52px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #e3f8f3, #f5f9ff);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 26px;
+      }
+
+      .copy {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .copy-title {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-main);
+      }
+
+      .copy-text {
+        font-size: 12px;
+        color: var(--text-subtle);
+        line-height: 1.4;
+      }
+
+      .button-wrap {
+        margin-top: 4px;
+      }
+
+      .primary-btn {
+        width: 100%;
+        border: none;
+        border-radius: 999px;
+        padding: 10px 16px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: transform 0.08s ease, box-shadow 0.08s ease,
+          background 0.1s ease;
+      }
+
+      .primary-btn:active {
+        transform: scale(0.98);
+        box-shadow: none;
+      }
+
+      .btn-on {
+        background: linear-gradient(
+          135deg,
+          var(--accent),
+          var(--accent-strong)
+        );
+        color: #ffffff;
+        box-shadow: 0 12px 30px rgba(74, 168, 148, 0.35);
+      }
+
+      .btn-off {
+        background: #e5e7eb;
+        color: var(--text-main);
+        box-shadow: 0 8px 18px rgba(148, 163, 184, 0.25);
+      }
+
+      .btn-icon {
+        font-size: 16px;
+      }
+
+      .footer-text {
+        margin-top: 8px;
+        font-size: 10px;
+        color: var(--text-subtle);
+        text-align: center;
+      }
+
+      .footer-text strong {
+        color: var(--accent-strong);
+        font-weight: 600;
+      }
+
+      .error {
+        margin-top: 6px;
+        font-size: 11px;
+        color: var(--danger);
+      }
+
+      /* Hide the actual video; we only need it for processing later */
+      video {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="header">
+        <div class="title-block">
+          <div class="title">Screen Care</div>
+          <div class="subtitle">Healthier screen time.</div>
+        </div>
+        <div id="statusPill" class="pill pill-off">
+          <span class="pill-dot"></span>
+          <span id="statusText">Off</span>
+        </div>
+      </div>
+
+      <div class="content">
+        <div id="iconCircle" class="icon-circle">
+          <!-- calming emoji icon -->
+          <span id="iconEmoji">🌿</span>
+        </div>
+        <div class="copy">
+          <div class="copy-title" id="stateHeadline">Screen Care is paused</div>
+          <div class="copy-text" id="stateDescription">
+            Turn on Screen Care to watch over eye strain and posture while you
+            work.
+          </div>
+        </div>
+      </div>
+
+      <div class="button-wrap">
+        <button id="toggleBtn" class="primary-btn btn-off">
+          <span class="btn-icon" id="btnIcon">▶️</span>
+          <span id="btnLabel">Turn On Screen Care</span>
+        </button>
+        <div id="errorMsg" class="error" style="display: none"></div>
+      </div>
+
+      <div class="footer-text">
+        Your camera is never shown on screen — Screen Care works quietly in the
+        background <strong> for you </strong>
+      </div>
+    </div>
+
+    <!-- Hidden video element for future processing (MediaPipe, etc.) -->
+    <video id="video" autoplay playsinline></video>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

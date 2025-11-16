@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Screen Care",
+  "version": "1.0",
+  "description": "Helps you maintain healthy screen habits with gentle reminders.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ScreenCare"
+  },
+  "permissions": [
+    "tabs",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["monitor.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+
+
