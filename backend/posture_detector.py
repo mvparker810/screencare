@@ -26,14 +26,16 @@ class PostureDetector:
 
         # Time tracking for alerts (in seconds)
         self.no_face_duration = 0
-        self.warning_duration = 0
-        self.bad_duration = 0
         self.last_face_time = time.time()
 
-        # Alert thresholds (in seconds)
+        # Rolling window for averaging (tracks last 10 seconds of frames)
+        self.frame_history = deque(maxlen=300)  # ~10 seconds at 30fps
+        self.frame_timestamps = deque(maxlen=300)
+
+        # Alert thresholds
         self.no_face_threshold = 30  # Alert if face not detected for 30 seconds
-        self.warning_threshold = 10  # Alert if warning state for 10 seconds
-        self.bad_threshold = 10  # Alert if bad state for 10 seconds
+        self.warning_avg_threshold = 0.6  # Alert if 60% of frames in last 10s are warning+
+        self.bad_avg_threshold = 0.5  # Alert if 50% of frames in last 10s are bad
 
         # Initialize MediaPipe Face Detection once
         self.face_detection = mp_face_detection.FaceDetection(
@@ -59,13 +61,13 @@ class PostureDetector:
 
     def detect_posture(self, frame):
         """
-        Detect posture from a frame.
+        Detect posture from a frame using rolling window averaging.
 
         Returns:
             posture_status: 'good', 'warning', or 'bad'
             face_size: relative size of face in frame
             bbox: bounding box of detected face
-            alerts: dict with alert signals
+            alerts: dict with alert signals (based on last 10 seconds)
         """
         frame_height, frame_width, _ = frame.shape
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -97,44 +99,44 @@ class PostureDetector:
 
             smoothed_size = self.get_smoothed_face_size()
 
+            # Determine current frame status
             if smoothed_size is None:
                 posture_status = 'good'
             elif smoothed_size > self.distance_threshold:
                 posture_status = 'bad'
-                self.bad_posture_counter += 1
-                self.bad_duration += 0.033  # Assume ~30fps
-                self.warning_duration = 0  # Reset warning duration
-
-                # Alert if bad for over threshold
-                if self.bad_duration >= self.bad_threshold:
-                    alerts['bad_alert'] = True
-
             elif smoothed_size > self.distance_threshold * 0.75:
                 posture_status = 'warning'
-                self.bad_posture_counter = 0
-                self.warning_duration += 0.033  # Assume ~30fps
-                self.bad_duration = 0  # Reset bad duration
-
-                # Alert if warning for over threshold
-                if self.warning_duration >= self.warning_threshold:
-                    alerts['warning_alert'] = True
-
             else:
                 posture_status = 'good'
-                self.bad_posture_counter = 0
-                self.warning_duration = 0  # Reset warning
-                self.bad_duration = 0  # Reset bad
         else:
-            self.bad_posture_counter = 0
-            self.warning_duration = 0  # Reset warning
-            self.bad_duration = 0  # Reset bad
-
-            # Track no-face duration
+            # No face detected
             self.no_face_duration = current_time - self.last_face_time
+            posture_status = 'good'
 
-            # Alert if no face for over threshold
-            if self.no_face_duration >= self.no_face_threshold:
-                alerts['no_face_alert'] = True
+        # Add current frame to rolling window
+        self.frame_history.append(posture_status)
+        self.frame_timestamps.append(current_time)
+
+        # Calculate averages over last 10 seconds
+        bad_count = sum(1 for status in self.frame_history if status == 'bad')
+        warning_or_bad_count = sum(1 for status in self.frame_history if status in ['bad', 'warning'])
+        total_frames = len(self.frame_history)
+
+        if total_frames > 0:
+            bad_fraction = bad_count / total_frames
+            warning_or_bad_fraction = warning_or_bad_count / total_frames
+
+            # Alert if bad posture is 50%+ of last 10 seconds
+            if bad_fraction >= self.bad_avg_threshold:
+                alerts['bad_alert'] = True
+
+            # Alert if warning+bad posture is 60%+ of last 10 seconds (and not already bad alert)
+            if not alerts['bad_alert'] and warning_or_bad_fraction >= self.warning_avg_threshold:
+                alerts['warning_alert'] = True
+
+        # Alert if no face for over 30 seconds
+        if self.no_face_duration >= self.no_face_threshold:
+            alerts['no_face_alert'] = True
 
         return posture_status, face_size, bbox, is_face_detected, alerts
 

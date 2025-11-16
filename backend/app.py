@@ -1,16 +1,17 @@
 """
 Flask REST API for Posture Detection
-Connects Chrome Extension frontend with Python backend
+Backend directly accesses camera and detects posture
 """
 
 import cv2
 import numpy as np
-import base64
 import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from posture_detector import PostureDetector
 import logging
+import threading
+import time
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -18,10 +19,20 @@ logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)  # Enable CORS for Chrome extension
+CORS(app)
 
 # Initialize detector once at startup
 detector = None
+is_detecting = False
+detection_thread = None
+
+# Store latest detection state
+current_status = {
+    'posture_status': 'good',
+    'face_size': None,
+    'is_face_detected': False,
+    'alerts': {'bad_alert': False, 'warning_alert': False, 'no_face_alert': False}
+}
 
 def init_detector():
     """Initialize the posture detector"""
@@ -34,163 +45,112 @@ def init_detector():
         logger.error(f"Failed to initialize detector: {e}")
         return False
 
+def run_detection_loop():
+    """Continuously capture from camera and detect posture"""
+    global is_detecting, current_status
+
+    try:
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            logger.error("Cannot access camera")
+            return
+
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+        logger.info("Camera opened successfully")
+        frame_count = 0
+
+        while is_detecting:
+            ret, frame = cap.read()
+            if not ret:
+                logger.error("Failed to read frame")
+                break
+
+            frame_count += 1
+
+            # Flip for selfie view
+            frame = cv2.flip(frame, 1)
+
+            # Detect posture
+            posture_status, face_size, bbox, is_face_detected, alerts = detector.detect_posture(frame)
+
+            # Update current status for frontend to poll
+            current_status = {
+                'posture_status': posture_status,
+                'face_size': float(face_size) if face_size is not None else None,
+                'is_face_detected': is_face_detected,
+                'alerts': alerts
+            }
+
+            # Log every 10th frame
+            if frame_count % 10 == 0:
+                distance_str = f"{face_size:.3f}" if face_size is not None else "None"
+                print(f"[DETECT] Face: {is_face_detected} | Distance: {distance_str} | Status: {posture_status} | Bad: {alerts['bad_alert']} | Warning: {alerts['warning_alert']} | NoFace: {alerts['no_face_alert']}")
+
+                # Trigger alerts
+                if alerts['bad_alert']:
+                    logger.warning("🚨 BAD POSTURE DETECTED - Move back from screen!")
+                elif alerts['warning_alert']:
+                    logger.warning("⚠️  WARNING - Adjust your posture!")
+                elif alerts['no_face_alert']:
+                    logger.warning("👤 NO FACE DETECTED - Face not in frame!")
+
+            # Small delay to avoid CPU spinning
+            time.sleep(0.01)  # ~100 FPS capture, process at ~10 FPS
+
+        cap.release()
+        logger.info("Camera released")
+    except Exception as e:
+        logger.error(f"Detection loop error: {e}")
+    finally:
+        is_detecting = False
+
 
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
     return jsonify({
         'status': 'ok',
+        'detecting': is_detecting,
         'detector_ready': detector is not None
     }), 200
 
 
-@app.route('/detect', methods=['POST'])
-def detect():
-    """
-    Detect posture from a video frame
+@app.route('/start', methods=['POST'])
+def start():
+    """Start posture detection"""
+    global is_detecting, detection_thread
 
-    Expected JSON:
-    {
-        "frame": "base64_encoded_image_data"
-    }
+    if is_detecting:
+        return jsonify({'status': 'already detecting'}), 200
 
-    Returns:
-    {
-        "status": "good|warning|bad",
-        "faceSize": 0.15,
-        "isFaceDetected": true,
-        "shouldAlert": false
-    }
-    """
     try:
-        if not detector:
-            return jsonify({'error': 'Detector not initialized'}), 500
-
-        # Get JSON data
-        data = request.get_json()
-
-        if not data or 'frame' not in data:
-            return jsonify({'error': 'Missing frame data'}), 400
-
-        # Decode base64 frame
-        frame_data = data['frame']
-
-        # Remove data URI prefix if present
-        if ',' in frame_data:
-            frame_data = frame_data.split(',')[1]
-
-        # Decode base64 to bytes
-        frame_bytes = base64.b64decode(frame_data)
-        nparr = np.frombuffer(frame_bytes, np.uint8)
-
-        # Decode image
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-        if frame is None:
-            return jsonify({'error': 'Failed to decode frame'}), 400
-
-        # Run detection
-        posture_status, face_size, bbox, is_face_detected, alerts = detector.detect_posture(frame)
-
-        # Prepare response
-        response = {
-            'status': posture_status,
-            'faceSize': float(face_size) if face_size is not None else None,
-            'isFaceDetected': is_face_detected,
-            'shouldAlert': detector.bad_posture_counter >= detector.bad_posture_threshold,
-            'badPostureTime': detector.bad_posture_time,
-            'noFaceAlert': alerts['no_face_alert'],
-            'warningAlert': alerts['warning_alert'],
-            'badAlert': alerts['bad_alert'],
-            'noFaceDuration': round(detector.no_face_duration, 2),
-            'warningDuration': round(detector.warning_duration, 2),
-            'badDuration': round(detector.bad_duration, 2)
-        }
-
-        return jsonify(response), 200
-
+        is_detecting = True
+        detection_thread = threading.Thread(target=run_detection_loop, daemon=True)
+        detection_thread.start()
+        logger.info("Detection started")
+        return jsonify({'status': 'started'}), 200
     except Exception as e:
-        logger.error(f"Detection error: {e}")
+        logger.error(f"Failed to start detection: {e}")
+        is_detecting = False
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/detect-batch', methods=['POST'])
-def detect_batch():
-    """
-    Process multiple frames in batch
+@app.route('/stop', methods=['POST'])
+def stop():
+    """Stop posture detection"""
+    global is_detecting
 
-    Expected JSON:
-    {
-        "frames": ["base64_1", "base64_2", ...]
-    }
-
-    Returns:
-    {
-        "results": [
-            {"status": "good", "faceSize": 0.15, ...},
-            ...
-        ]
-    }
-    """
-    try:
-        if not detector:
-            return jsonify({'error': 'Detector not initialized'}), 500
-
-        data = request.get_json()
-
-        if not data or 'frames' not in data:
-            return jsonify({'error': 'Missing frames data'}), 400
-
-        frames = data['frames']
-        results = []
-
-        for frame_data in frames:
-            try:
-                # Remove data URI prefix if present
-                if ',' in frame_data:
-                    frame_data = frame_data.split(',')[1]
-
-                # Decode
-                frame_bytes = base64.b64decode(frame_data)
-                nparr = np.frombuffer(frame_bytes, np.uint8)
-                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-                if frame is None:
-                    results.append({'error': 'Failed to decode'})
-                    continue
-
-                # Detect
-                posture_status, face_size, bbox, is_face_detected, alerts = detector.detect_posture(frame)
-
-                results.append({
-                    'status': posture_status,
-                    'faceSize': float(face_size) if face_size is not None else None,
-                    'isFaceDetected': is_face_detected,
-                    'shouldAlert': detector.bad_posture_counter >= detector.bad_posture_threshold,
-                    'noFaceAlert': alerts['no_face_alert'],
-                    'warningAlert': alerts['warning_alert'],
-                    'badAlert': alerts['bad_alert']
-                })
-            except Exception as e:
-                results.append({'error': str(e)})
-
-        return jsonify({'results': results}), 200
-
-    except Exception as e:
-        logger.error(f"Batch detection error: {e}")
-        return jsonify({'error': str(e)}), 500
+    is_detecting = False
+    logger.info("Detection stopped")
+    return jsonify({'status': 'stopped'}), 200
 
 
-@app.route('/reset', methods=['POST'])
-def reset():
-    """Reset detector state"""
-    try:
-        global detector
-        detector = PostureDetector(distance_threshold=0.5)
-        return jsonify({'status': 'reset'}), 200
-    except Exception as e:
-        logger.error(f"Reset error: {e}")
-        return jsonify({'error': str(e)}), 500
+@app.route('/status', methods=['GET'])
+def status():
+    """Get current detection status"""
+    return jsonify(current_status), 200
 
 
 if __name__ == '__main__':
