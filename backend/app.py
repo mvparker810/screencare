@@ -175,6 +175,23 @@ def _show_fullscreen_block(message, duration_ms):
     cv2.namedWindow(window_name, cv2.WND_PROP_FULLSCREEN)
     cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     cv2.imshow(window_name, img)
+    
+    try:
+        user32 = ctypes.windll.user32
+        HWND_TOPMOST = -1
+        SWP_NOSIZE = 0x0001
+        SWP_NOMOVE = 0x0002
+
+        # Find the OpenCV window by its title
+        hwnd = user32.FindWindowW(None, window_name)
+        if hwnd:
+            # Make it topmost
+            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                                SWP_NOMOVE | SWP_NOSIZE)
+            # Try to bring it to the foreground
+            user32.SetForegroundWindow(hwnd)
+    except Exception as e:
+        print(f"Could not force Eye Break window topmost/foreground: {e}")
 
     # Block here for duration_ms milliseconds
     cv2.waitKey(duration_ms)
@@ -318,6 +335,10 @@ def run_detection_loop():
                     logger.warning("⚠️  WARNING - Adjust your posture!")
                 # elif alerts['no_face_alert']:
                 #     logger.warning("👤 NO FACE DETECTED - Face not in frame!")
+                if alerts.get('serious_eye_strain'):
+                    block_screen_with_5min_activity()
+                elif alerts.get('low_blink_rate_alert'):
+                    block_screen_20_20_rule()
 
             # Small delay to avoid CPU spinning
             time.sleep(0.01)  # ~100 FPS capture, process at ~10 FPS

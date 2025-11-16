@@ -71,7 +71,8 @@ class PostureDetector:
         self.blink_timestamps = deque()  # Track when blinks occur
         self.blink_rate_check_interval = 60  # Check blink rate every 60 seconds
         self.last_blink_rate_check = time.time()
-        self.min_blinks_per_minute = 15  # Warn if below this threshold
+        self.absolute_min_blinks_per_minute = 7  # Warn if below this threshold
+        self.min_blinks_per_minute = 11
         self.low_blink_rate_alert_triggered = False  # Prevent repeated alerts
 
     def calculate_face_size(self, detection, frame_width, frame_height):
@@ -245,7 +246,8 @@ class PostureDetector:
             'no_face_alert': False,
             'warning_alert': False,
             'bad_alert': False,
-            'low_blink_rate_alert': False
+            'low_blink_rate_alert': False,
+            'serious_eye_strain': False
         }
 
         if results.detections:
@@ -310,12 +312,15 @@ class PostureDetector:
             blinks_per_minute = blinks_in_interval  # Already in 60-second window
 
             # Check if below threshold
-            if blinks_per_minute < self.min_blinks_per_minute:
+            if blinks_per_minute < self.absolute_min_blinks_per_minute:
+                alerts['serious_eye_strain'] = True
+                self.low_blink_rate_alert_triggered = True
+                print(f"⚠️  LOW BLINK RATE - {blinks_per_minute} blinks/min (threshold: {self.absolute_min_blinks_per_minute})")
+            elif blinks_per_minute < self.min_blinks_per_minute: 
                 alerts['low_blink_rate_alert'] = True
                 self.low_blink_rate_alert_triggered = True
                 print(f"⚠️  LOW BLINK RATE - {blinks_per_minute} blinks/min (threshold: {self.min_blinks_per_minute})")
-            else:
-                # Reset trigger flag when blink rate recovers
+            else:# Reset trigger flag when blink rate recovers
                 self.low_blink_rate_alert_triggered = False
 
             self.last_blink_rate_check = current_time
