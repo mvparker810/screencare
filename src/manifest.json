@@ -3,6 +3,12 @@
   "name": "Screen Care",
   "version": "1.0",
   "description": "Helps you maintain healthy screen habits with gentle reminders.",
+  "icons": {
+        "16": "media/icon.png",
+        "32": "media/icon.png",
+        "48": "media/icon.png",
+        "128": "media/icon.png"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "ScreenCare"

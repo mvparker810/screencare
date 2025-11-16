@@ -69,6 +69,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   function updateUI(status) {
+    // Calculate posture percentage (100% = perfect, 0% = too close)
+    // Ideal distance is ~0.25; values above that are capped at 100%
+    const posturePercentage = status.face_size
+      ? Math.min(100, Math.round((status.face_size / 0.25) * 100))
+      : 0;
+
     // Check for no face alert
     if (status.alerts.no_face_alert) {
       showAlert("no_face", "👤 We can't find you!", "Please make sure your face is visible to the camera");
@@ -76,18 +82,17 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Check for bad posture alert (after 3 seconds)
     if (status.alerts.bad_alert) {
-      showAlert("bad", "🚨 Bad Posture!", "Move back from the screen");
+      showAlert("bad", "🚨 Bad Posture!", `Posture: ${posturePercentage}% | Move back from the screen`);
     }
 
     // Check for warning alert (after 3 seconds)
     if (status.alerts.warning_alert) {
-      showAlert("warning", "⚠️ Posture Warning", "Adjust your posture to maintain good positioning");
+      showAlert("warning", "⚠️ Posture Warning", `Posture: ${posturePercentage}% | Adjust your posture to maintain good positioning`);
     }
 
-    // Update status text
-    const distanceStr = status.face_size ? status.face_size.toFixed(3) : "N/A";
-    stateHeadline.textContent = `${status.posture_status.charAt(0).toUpperCase() + status.posture_status.slice(1)} Posture`;
-    stateDescription.textContent = `Distance: ${distanceStr} | Face Detected: ${status.is_face_detected ? "Yes" : "No"}`;
+    // Update status text with percentage
+    stateHeadline.textContent = `${status.posture_status.charAt(0).toUpperCase() + status.posture_status.slice(1)} Posture (${posturePercentage}%)`;
+    stateDescription.textContent = `Face Detected: ${status.is_face_detected ? "Yes" : "No"}`;
   }
 
   function showAlert(type, title, message) {
