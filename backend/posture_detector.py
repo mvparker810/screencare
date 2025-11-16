@@ -11,7 +11,7 @@ mp_face_mesh = mp.solutions.face_mesh
 mp_drawing = mp.solutions.drawing_utils
 
 class PostureDetector:
-    def __init__(self, distance_threshold=0.6, smoothing_frames=10):
+    def __init__(self, distance_threshold=0.18, smoothing_frames=10):
         """
         Initialize the posture detector.
 
