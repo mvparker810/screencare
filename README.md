@@ -1,1 +1,1 @@
-# ScreenCare
+cd backend && python posture_detector.py
