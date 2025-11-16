@@ -7,9 +7,17 @@
     "default_popup": "popup.html",
     "default_title": "ScreenCare"
   },
-  "permissions": ["notifications"],
+  "permissions": ["notifications", "tabs", "offscreen"],
   "host_permissions": [
-    "http://localhost/*"
+    "http://localhost/*",
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["notification-injector.js"],
+      "run_at": "document_start"
+    }
   ]
 }
 

@@ -31,7 +31,7 @@ current_status = {
     'posture_status': 'good',
     'face_size': None,
     'is_face_detected': False,
-    'alerts': {'bad_alert': False, 'warning_alert': False, 'no_face_alert': False}
+    'alerts': {'bad_alert': False, 'warning_alert': False, 'no_face_alert': False, 'low_blink_rate_alert': False}
 }
 
 def init_detector():
